@@ -10,8 +10,8 @@ SUPABASE_KEY = st.secrets["supabase_key"]
 TABLE_NAME = "condition"
 
 # --- Googleスプレッドシート情報 ---
-SPREADSHEET_NAME = "2025年度_起床時コンディションチェック（実業団・NF）"
-SHEET_NAME = "condition2026"
+SPREADSHEET_NAME = "専修大学駅伝部_コンディションチェック"
+SHEET_NAME = "condition"
 
 # --- Supabaseから未出力データ取得 ---
 def fetch_unexported_data():
