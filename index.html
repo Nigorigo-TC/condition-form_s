@@ -313,7 +313,7 @@
     const SUPABASE_URL = "https://zadmkthnxgbgsipxciuf.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InphZG1rdGhueGdiZ3NpcHhjaXVmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM2NjMxNTEsImV4cCI6MjA1OTIzOTE1MX0.dv5vl3aZ6gcaDHi2-W3F4rT4wTrB3U1jgretX-yG_VU";
 
-    const form = document.getElementById("condition-form");
+    const form = document.getElementById("condition-form_s");
     const messageDiv = document.getElementById("message");
 
     // --- 10. 故障有無 → 11.箇所を表示/非表示 ---
@@ -436,7 +436,7 @@
      
 
       try {
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/condition`, {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/condition_s`, {
           method: "POST",
           headers: {
             "apikey": SUPABASE_ANON_KEY,
