@@ -11,7 +11,7 @@ TABLE_NAME = "condition_s"
 
 # --- Googleスプレッドシート情報 ---
 SPREADSHEET_NAME = "専修大学駅伝部_コンディションチェック"
-SHEET_NAME = "condition"
+SHEET_NAME = "condition_2026~"
 
 # --- Supabaseから未出力データ取得 ---
 def fetch_unexported_data():
