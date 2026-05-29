@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>スタッフ用コンディション推移</title>
+  <meta name="robots" content="noindex, nofollow">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+
+    h1 { margin-bottom: 8px; }
+
+    .note {
+      color: #555;
+      margin-bottom: 20px;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+      padding: 16px;
+      background: #f5f6f8;
+      border-radius: 12px;
+    }
+
+    input, select, button {
+      font-size: 1rem;
+      padding: 8px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    button {
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    .section {
+      margin-top: 24px;
+      padding: 16px;
+      background: #fafafa;
+      border-radius: 12px;
+      border: 1px solid #ddd;
+    }
+
+    .checkbox-area {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 6px;
+    }
+
+    label { display: block; }
+
+    .chart-box {
+      margin-top: 28px;
+      padding: 16px;
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      background: white;
+    }
+
+    canvas { max-height: 420px; }
+
+    #status {
+      font-weight: bold;
+      margin-top: 12px;
+    }
+
+    .summary-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      font-size: 0.95rem;
+    }
+
+    .summary-table th,
+    .summary-table td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: center;
+    }
+
+    .summary-table th { background: #f0f0f0; }
+
+    .bad {
+      color: #d60000;
+      font-weight: bold;
+    }
+
+    .good {
+      color: #008000;
+      font-weight: bold;
+    }
+
+    .small {
+      color: #666;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>スタッフ用コンディション推移</h1>
+  <p class="note">URLで指定された所属のデータを表示します。</p>
+
+  <div class="controls">
+    <div>
+      <label>開始日</label>
+      <input type="date" id="startDate">
+    </div>
+
+    <div>
+      <label>終了日</label>
+      <input type="date" id="endDate">
+    </div>
+
+    <div>
+      <label>&nbsp;</label>
+      <button onclick="loadData()">データ表示</button>
+    </div>
+  </div>
+
+  <div id="status"></div>
+
+  <div class="section">
+    <h3>選手フィルター</h3>
+    <div id="athleteFilters" class="checkbox-area"></div>
+  </div>
+
+  <div class="section">
+    <h3>表示する項目</h3>
+    <div id="metricFilters" class="checkbox-area"></div>
+  </div>
+
+  <div class="section">
+    <h3>最新データ一覧</h3>
+    <div id="summary"></div>
+  </div>
+
+  <div id="charts"></div>
+
+  <script>
+    const SUPABASE_URL = "https://zadmkthnxgbgsipxciuf.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InphZG1rdGhueGdiZ3NpcHhjaXVmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM2NjMxNTEsImV4cCI6MjA1OTIzOTE1MX0.dv5vl3aZ6gcaDHi2-W3F4rT4wTrB3U1jgretX-yG_VU";
+
+    function getTeamFromURL() {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("team") || "専修大学";
+    }
+
+    const STAFF_TEAM = getTeamFromURL();
+
+    const metrics = [
+      { key: "health", label: "全般的体調" },
+      { key: "fatigue", label: "疲労感" },
+      { key: "sleep_time", label: "睡眠時間" },
+      { key: "sleep_quality", label: "睡眠の深さ" },
+      { key: "appetite", label: "食欲" },
+      { key: "injury_severity", label: "故障・怪我の程度" },
+      { key: "training_intensity", label: "練習強度" },
+      { key: "bowel_shape", label: "便の形" },
+      { key: "running_distance", label: "走行距離" },
+      { key: "spo2", label: "SpO₂" },
+      { key: "pulse", label: "脈拍数" },
+      { key: "temperature", label: "体温" },
+      { key: "weight", label: "体重" }
+    ];
+
+    const axisDescriptions = {
+      health: { minValue: 0, maxValue: 100, minText: "とても悪い", maxText: "とても良い" },
+      fatigue: { minValue: 0, maxValue: 100, minText: "全くない", maxText: "とても強い" },
+      sleep_quality: { minValue: 0, maxValue: 100, minText: "とても浅い", maxText: "とても深い" },
+      appetite: { minValue: 0, maxValue: 100, minText: "全くない", maxText: "とてもある" },
+      injury_severity: { minValue: 0, maxValue: 100, minText: "全くない", maxText: "練習ができない" },
+      training_intensity: { minValue: 0, maxValue: 100, minText: "非常に楽", maxText: "非常にきつい" },
+      bowel_shape: { minValue: 1, maxValue: 7, minText: "固い便", maxText: "水様便" }
+    };
+
+    let rawData = [];
+    let charts = [];
+
+    function normalizeName(name) {
+      if (!name) return "";
+
+      return String(name)
+        .normalize("NFKC")
+        .replace(/[\s\u00A0\u1680\u180E\u2000-\u200D\u2028\u2029\u202F\u205F\u3000\uFEFF]/g, "")
+        .replace(/[・･.,，．、。]/g, "")
+        .trim();
+    }
+
+    function getDisplayName(normalizedName) {
+      const rows = rawData.filter(r => r.name_normalized === normalizedName);
+
+      if (rows.length === 0) return normalizedName;
+
+      // 表示名は一番最初に出てきた元の名前を使う
+      return rows[0].name_original || normalizedName;
+    }
+
+    function todayStr() {
+      return new Date().toISOString().split("T")[0];
+    }
+
+    function daysAgoStr(days) {
+      const d = new Date();
+      d.setDate(d.getDate() - days);
+      return d.toISOString().split("T")[0];
+    }
+
+    document.getElementById("endDate").value = todayStr();
+    document.getElementById("startDate").value = daysAgoStr(7);
+
+    function destroyCharts() {
+      charts.forEach(chart => chart.destroy());
+      charts = [];
+    }
+
+    function colorForIndex(i) {
+      return `hsl(${(i * 57) % 360}, 70%, 45%)`;
+    }
+
+    function getCheckedValues(className) {
+      return Array.from(document.querySelectorAll(`.${className}:checked`))
+        .map(el => el.value);
+    }
+
+    function getAllDates(data) {
+      return [...new Set(data.map(row => row.date))]
+        .filter(Boolean)
+        .sort();
+    }
+
+    function getYAxisConfig(metricKey) {
+      const desc = axisDescriptions[metricKey];
+
+      if (!desc) return {};
+
+      return {
+        min: desc.minValue,
+        max: desc.maxValue,
+        ticks: {
+          stepSize: metricKey === "bowel_shape" ? 1 : 20,
+          callback: function(value) {
+            if (value === desc.minValue) {
+              return `${value}（${desc.minText}）`;
+            }
+            if (value === desc.maxValue) {
+              return `${value}（${desc.maxText}）`;
+            }
+            return value;
+          }
+        }
+      };
+    }
+
+    function makeSimpleComment(latest, prev) {
+      if (!prev) return "初回または比較データなし";
+
+      const comments = [];
+
+      if (latest.health != null && prev.health != null) {
+        const diff = latest.health - prev.health;
+        if (diff <= -10) comments.push("体調低下");
+        if (diff >= 10) comments.push("体調改善");
+      }
+
+      if (latest.fatigue != null && prev.fatigue != null) {
+        const diff = latest.fatigue - prev.fatigue;
+        if (diff >= 10) comments.push("疲労増加");
+        if (diff <= -10) comments.push("疲労軽減");
+      }
+
+      if (latest.sleep_quality != null && prev.sleep_quality != null) {
+        const diff = latest.sleep_quality - prev.sleep_quality;
+        if (diff <= -10) comments.push("睡眠低下");
+        if (diff >= 10) comments.push("睡眠改善");
+      }
+
+      if (latest.spo2 != null && prev.spo2 != null) {
+        const diff = latest.spo2 - prev.spo2;
+        if (diff <= -2) comments.push("SpO₂低下");
+        if (diff >= 2) comments.push("SpO₂改善");
+      }
+
+      if (latest.pulse != null && prev.pulse != null) {
+        const diff = latest.pulse - prev.pulse;
+        if (diff >= 5) comments.push("脈拍上昇");
+        if (diff <= -5) comments.push("脈拍低下");
+      }
+
+      if (latest.injury_severity != null && prev.injury_severity != null) {
+        const diff = latest.injury_severity - prev.injury_severity;
+        if (diff >= 10) comments.push("故障程度悪化");
+        if (diff <= -10) comments.push("故障程度軽減");
+      }
+
+      if (comments.length === 0) return "安定";
+
+      return comments.join(" / ");
+    }
+
+    async function loadData() {
+      destroyCharts();
+
+      document.getElementById("status").textContent = "読み込み中...";
+      document.getElementById("athleteFilters").innerHTML = "";
+      document.getElementById("metricFilters").innerHTML = "";
+      document.getElementById("summary").innerHTML = "";
+      document.getElementById("charts").innerHTML = "";
+
+      const start = document.getElementById("startDate").value;
+      const end = document.getElementById("endDate").value;
+
+      const selectCols = [
+        "date",
+        "team",
+        "name",
+        ...metrics.map(m => m.key)
+      ].join(",");
+
+
+        const url =
+          `${SUPABASE_URL}/rest/v1/condition_s` +
+          `?select=id,date,team,name` +
+          `&order=date.asc`;
+
+      const res = await fetch(url, {
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`
+        }
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        document.getElementById("status").textContent = `取得エラー: ${text}`;
+        return;
+      }
+
+      const data = await res.json();
+
+      rawData = data.map(row => ({
+        ...row,
+        name_original: row.name,
+        name_normalized: normalizeName(row.name)
+      }));
+
+      if (!rawData || rawData.length === 0) {
+        document.getElementById("status").textContent =
+        `取得件数：${data.length}件`;
+        return;
+      }
+
+      document.getElementById("status").textContent =
+        `${STAFF_TEAM}：${rawData.length}件のデータを取得しました。`;
+
+      renderFilters();
+      renderSummary();
+      renderCharts();
+    }
+
+    function renderFilters() {
+      const athleteNames = [
+        ...new Set(rawData.map(row => row.name_normalized).filter(Boolean))
+      ].sort();
+
+      document.getElementById("athleteFilters").innerHTML =
+        athleteNames.map(normalizedName => {
+          const displayName = getDisplayName(normalizedName);
+
+          return `
+            <label>
+              <input type="checkbox" class="athlete-check" value="${normalizedName}" checked onchange="renderAll()">
+              ${displayName}
+            </label>
+          `;
+        }).join("");
+
+      document.getElementById("metricFilters").innerHTML =
+        metrics.map(m => `
+          <label>
+            <input type="checkbox" class="metric-check" value="${m.key}" checked onchange="renderCharts()">
+            ${m.label}
+          </label>
+        `).join("");
+    }
+
+    function renderAll() {
+      renderSummary();
+      renderCharts();
+    }
+
+    function renderSummary() {
+      const selectedAthletes = getCheckedValues("athlete-check");
+      const summaryDiv = document.getElementById("summary");
+
+      if (selectedAthletes.length === 0) {
+        summaryDiv.innerHTML = "<p>表示する選手を選択してください。</p>";
+        return;
+      }
+
+      let html = `
+        <table class="summary-table">
+          <tr>
+            <th>名前</th>
+            <th>最新日</th>
+            <th>体調</th>
+            <th>疲労</th>
+            <th>睡眠</th>
+            <th>SpO₂</th>
+            <th>脈拍</th>
+            <th>コメント</th>
+          </tr>
+      `;
+
+      selectedAthletes.forEach(normalizedName => {
+        const rows = rawData
+          .filter(row => row.name_normalized === normalizedName)
+          .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        if (rows.length === 0) return;
+
+        const latest = rows[rows.length - 1];
+        const prev = rows.length >= 2 ? rows[rows.length - 2] : null;
+        const comment = makeSimpleComment(latest, prev);
+        const displayName = getDisplayName(normalizedName);
+
+        const isBad =
+          comment.includes("低下") ||
+          comment.includes("増加") ||
+          comment.includes("悪化") ||
+          comment.includes("上昇");
+
+        const isGood =
+          comment.includes("改善") ||
+          comment.includes("軽減") ||
+          comment.includes("安定");
+
+        const cls = isBad ? "bad" : isGood ? "good" : "";
+
+        html += `
+          <tr>
+            <td>${displayName}</td>
+            <td>${latest.date ?? ""}</td>
+            <td>${latest.health ?? ""}</td>
+            <td>${latest.fatigue ?? ""}</td>
+            <td>${latest.sleep_quality ?? ""}</td>
+            <td>${latest.spo2 ?? ""}</td>
+            <td>${latest.pulse ?? ""}</td>
+            <td class="${cls}">${comment}</td>
+          </tr>
+        `;
+      });
+
+      html += "</table>";
+      summaryDiv.innerHTML = html;
+    }
+
+    function renderCharts() {
+      destroyCharts();
+
+      const selectedAthletes = getCheckedValues("athlete-check");
+      const selectedMetrics = getCheckedValues("metric-check");
+
+      const chartsDiv = document.getElementById("charts");
+      chartsDiv.innerHTML = "";
+
+      if (selectedAthletes.length === 0 || selectedMetrics.length === 0) {
+        chartsDiv.innerHTML = "<p>表示する選手または項目を選択してください。</p>";
+        return;
+      }
+
+      const filteredData = rawData.filter(row =>
+        selectedAthletes.includes(row.name_normalized)
+      );
+
+      const labels = getAllDates(filteredData);
+
+      selectedMetrics.forEach(metricKey => {
+        const metric = metrics.find(m => m.key === metricKey);
+        if (!metric) return;
+
+        const chartBox = document.createElement("div");
+        chartBox.className = "chart-box";
+
+        const title = document.createElement("h3");
+        const axisDesc = axisDescriptions[metricKey];
+
+        if (axisDesc) {
+          title.textContent =
+            `${metric.label}：${axisDesc.minValue}（${axisDesc.minText}）〜${axisDesc.maxValue}（${axisDesc.maxText}）`;
+        } else {
+          title.textContent = metric.label;
+        }
+
+        const canvas = document.createElement("canvas");
+
+        chartBox.appendChild(title);
+        chartBox.appendChild(canvas);
+        chartsDiv.appendChild(chartBox);
+
+        const datasets = selectedAthletes.map((normalizedName, idx) => {
+          const athleteRows = rawData
+            .filter(row => row.name_normalized === normalizedName)
+            .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+          const valuesByDate = {};
+
+          athleteRows.forEach(row => {
+            const value = row[metricKey];
+
+            if (value !== null && value !== "" && value !== undefined) {
+              valuesByDate[row.date] = Number(value);
+            }
+          });
+
+          return {
+            label: getDisplayName(normalizedName),
+            data: labels.map(date => valuesByDate[date] ?? null),
+            borderColor: colorForIndex(idx),
+            backgroundColor: colorForIndex(idx),
+            tension: 0,
+            spanGaps: true,
+            pointRadius: 4,
+            pointHoverRadius: 6
+          };
+        });
+
+        const yConfig = getYAxisConfig(metricKey);
+
+        const chart = new Chart(canvas, {
+          type: "line",
+          data: {
+            labels: labels,
+            datasets: datasets
+          },
+          options: {
+            responsive: true,
+            interaction: {
+              mode: "nearest",
+              intersect: false
+            },
+            plugins: {
+              legend: {
+                position: "bottom"
+              },
+              tooltip: {
+                callbacks: {
+                  label: function(context) {
+                    return `${context.dataset.label}: ${context.parsed.y}`;
+                  }
+                }
+              }
+            },
+            scales: {
+              x: {
+                title: {
+                  display: true,
+                  text: "日付"
+                }
+              },
+              y: {
+                ...yConfig,
+                title: {
+                  display: true,
+                  text: metric.label
+                }
+              }
+            }
+          }
+        });
+
+        charts.push(chart);
+      });
+    }
+  </script>
+</body>
+</html>
